@@ -138,3 +138,13 @@ class TestPerformance(FrappeTestCase):
 			PathResolver(path).resolve()
 			with self.assertQueryCount(1):
 				PathResolver(path).resolve()
+
+	def test_consistent_build_version(self):
+		from frappe.utils import get_build_version
+
+		self.assertEqual(get_build_version(), get_build_version())
+
+	def test_no_ifnull_checks(self):
+		query = frappe.get_all("DocType", {"autoname": ("is", "set")}, run=0).lower()
+		self.assertNotIn("coalesce", query)
+		self.assertNotIn("ifnull", query)

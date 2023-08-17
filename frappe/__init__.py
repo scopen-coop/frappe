@@ -25,7 +25,7 @@ import click
 from werkzeug.local import Local, release_local
 
 from frappe.query_builder import (
-	get_qb_engine,
+	get_query,
 	get_query_builder,
 	patch_query_aggregation,
 	patch_query_execute,
@@ -44,7 +44,7 @@ from .utils.jinja import (
 )
 from .utils.lazy_loader import lazy_import
 
-__version__ = "14.40.3"
+__version__ = "14.45.0"
 __title__ = "Frappe Framework"
 
 controllers = {}
@@ -57,7 +57,7 @@ re._MAXCACHE = (
 	50  # reduced from default 512 given we are already maintaining this on parent worker
 )
 
-_tune_gc = bool(os.environ.get("FRAPPE_TUNE_GC", False))
+_tune_gc = bool(sbool(os.environ.get("FRAPPE_TUNE_GC", True)))
 
 if _dev_server:
 	warnings.simplefilter("always", DeprecationWarning)
@@ -247,7 +247,8 @@ def init(site: str, sites_path: str = ".", new_site: bool = False, force=False) 
 	local.session = _dict()
 	local.dev_server = _dev_server
 	local.qb = get_query_builder(local.conf.db_type or "mariadb")
-	local.qb.engine = get_qb_engine()
+	local.qb.get_query = get_query
+	local.qb.engine = _dict(get_query=get_query)  # for backward compatiblity
 	setup_module_map()
 
 	if not _qb_patched.get(local.conf.db_type):
@@ -276,8 +277,11 @@ def connect(
 		set_user("Administrator")
 
 
-def connect_replica():
+def connect_replica() -> bool:
 	from frappe.database import get_db
+
+	if local and hasattr(local, "replica_db") and hasattr(local, "primary_db"):
+		return False
 
 	user = local.conf.db_name
 	password = local.conf.db_password
@@ -292,6 +296,8 @@ def connect_replica():
 	# swap db connections
 	local.primary_db = local.db
 	local.db = local.replica_db
+
+	return True
 
 
 def get_site_config(sites_path: str | None = None, site_path: str | None = None) -> dict[str, Any]:
@@ -785,13 +791,17 @@ def is_whitelisted(method):
 def read_only():
 	def innfn(fn):
 		def wrapper_fn(*args, **kwargs):
+
+			# frappe.read_only could be called from nested functions, in such cases don't swap the
+			# connection again.
+			switched_connection = False
 			if conf.read_from_replica:
-				connect_replica()
+				switched_connection = connect_replica()
 
 			try:
 				retval = fn(*args, **get_newargs(fn, kwargs))
 			finally:
-				if local and hasattr(local, "primary_db"):
+				if switched_connection and local and hasattr(local, "primary_db"):
 					local.db.close()
 					local.db = local.primary_db
 
@@ -2265,27 +2275,11 @@ def bold(text):
 
 def safe_eval(code, eval_globals=None, eval_locals=None):
 	"""A safer `eval`"""
+
+	from frappe.utils.safe_exec import UNSAFE_ATTRIBUTES
+
 	whitelisted_globals = {"int": int, "float": float, "long": int, "round": round}
 	code = unicodedata.normalize("NFKC", code)
-
-	UNSAFE_ATTRIBUTES = {
-		# Generator Attributes
-		"gi_frame",
-		"gi_code",
-		# Coroutine Attributes
-		"cr_frame",
-		"cr_code",
-		"cr_origin",
-		# Async Generator Attributes
-		"ag_code",
-		"ag_frame",
-		# Traceback Attributes
-		"tb_frame",
-		"tb_next",
-		# Format Attributes
-		"format",
-		"format_map",
-	}
 
 	for attribute in UNSAFE_ATTRIBUTES:
 		if attribute in code:
