@@ -1190,8 +1190,10 @@ Object.assign(frappe.utils, {
 	},
 
 	get_number_system: function (country) {
-		if (["Nepal", "Bangladesh", "India", "Myanmar", "Pakistan"].includes(country)) {
+		if (["Bangladesh", "India", "Myanmar", "Pakistan"].includes(country)) {
 			return number_systems.indian;
+		} else if (country == "Nepal") {
+			return number_systems.nepalese;
 		} else {
 			return number_systems.default;
 		}
@@ -1551,6 +1553,9 @@ Object.assign(frappe.utils, {
 	},
 
 	fetch_link_title(doctype, name) {
+		if (!doctype || !name) {
+			return;
+		}
 		try {
 			return frappe
 				.xcall("frappe.desk.search.get_link_title", {
