@@ -103,11 +103,7 @@ frappe.views.CommunicationComposer = class {
 				label: __("Add Signature"),
 				fieldname: 'add_signature',
 				hidden: 1,
-				click: async function() {
-					let sender_email = this.dialog.get_value('sender') || "";
-					this.content_set = false;
-					await this.set_content(sender_email);
-				}
+				click: () => { this.add_signature() }
 			},
 			{ fieldtype: "Section Break" },
 			{
@@ -181,6 +177,14 @@ frappe.views.CommunicationComposer = class {
 
 		const label = frappe.utils.icon(show_options ? 'up-line': 'down');
 		this.dialog.get_field('option_toggle_button').set_label(label);
+	}
+
+	async add_signature() {
+		if (this.dialog && this.frm) {
+			let sender_email = this.dialog.get_value('sender') || "";
+			this.content_set = false;
+			await this.set_content(sender_email);
+		}
 	}
 
 	prepare() {
