@@ -216,6 +216,10 @@ class DatabaseQuery:
 		args = self.prepare_args()
 		args.limit = self.add_limit()
 
+		if not args.fields:
+			# apply_fieldlevel_read_permissions has likely removed ALL the fields that user asked for
+			return []
+
 		if args.conditions:
 			args.conditions = "where " + args.conditions
 
@@ -479,6 +483,12 @@ class DatabaseQuery:
 						table_name = linked_table.table_name
 						break
 
+				# Check if table_name is a linked_table alias
+				for linked_table in self.link_tables:
+					if linked_table.table_alias == table_name:
+						table_name = linked_table.table_name
+						break
+
 				if table_name.lower().startswith("group_concat("):
 					table_name = table_name[13:]
 				if not table_name[0] == "`":
@@ -521,14 +531,13 @@ class DatabaseQuery:
 
 	def _set_permission_map(self, doctype: str, parent_doctype: str | None = None):
 		ptype = "select" if frappe.only_has_select_perm(doctype) else "read"
-		val = frappe.has_permission(
+		frappe.has_permission(
 			doctype,
 			ptype=ptype,
 			parent_doctype=parent_doctype or self.doctype,
+			throw=True,
+			user=self.user,
 		)
-		if not val:
-			frappe.flags.error_message = _("Insufficient Permission for {0}").format(frappe.bold(doctype))
-			raise frappe.PermissionError(doctype)
 		self.permission_map[doctype] = ptype
 
 	def set_field_tables(self):
@@ -756,7 +765,7 @@ class DatabaseQuery:
 			ref_doctype = field.options if field else f.doctype
 			lft, rgt = "", ""
 			if f.value:
-				lft, rgt = frappe.db.get_value(ref_doctype, f.value, ["lft", "rgt"])
+				lft, rgt = frappe.db.get_value(ref_doctype, f.value, ["lft", "rgt"]) or (0, 0)
 
 			# Get descendants elements of a DocType with a tree structure
 			if f.operator.lower() in ("descendants of", "not descendants of"):
@@ -1058,6 +1067,8 @@ class DatabaseQuery:
 					self.fields[0].lower().startswith("count(")
 					or self.fields[0].lower().startswith("min(")
 					or self.fields[0].lower().startswith("max(")
+					or self.fields[0].lower().startswith("sum(")
+					or self.fields[0].lower().startswith("avg(")
 				)
 				and not self.group_by
 			)
