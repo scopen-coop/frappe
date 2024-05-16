@@ -3,6 +3,8 @@
 
 from __future__ import unicode_literals
 
+from urllib.parse import urlparse
+
 import json
 
 import frappe
@@ -23,6 +25,7 @@ no_cache = True
 
 def get_context(context):
 	redirect_to = frappe.local.request.args.get("redirect-to")
+	redirect_to = sanitize_redirect(redirect_to)
 
 	if frappe.session.user != "Guest":
 		if not redirect_to:
@@ -133,3 +136,23 @@ def login_via_token(login_token):
 	redirect_post_login(
 		desk_user=frappe.db.get_value("User", frappe.session.user, "user_type") == "System User"
 	)
+
+
+def sanitize_redirect(redirect=''):
+	"""Only allow redirect on same domain.
+	Allowed redirects:
+	- Same host e.g. https://frappe.localhost/path
+	- Just path e.g. /app
+	"""
+	if not redirect:
+		return redirect
+
+	parsed_redirect = urlparse(redirect)
+	if not parsed_redirect.netloc:
+		return redirect
+
+	parsed_request_host = urlparse(frappe.local.request.url)
+	if parsed_request_host.netloc == parsed_redirect.netloc:
+		return redirect
+
+	return None
